@@ -1,4 +1,8 @@
-# Single GPU Passthrough
+# Single GPU Passthrough with CPU and SSD Partition Passthrough
+
+## Useful commands
+
+- `lsblk`: To find partition names.
 
 ## References
 
