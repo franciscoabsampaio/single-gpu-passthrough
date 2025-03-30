@@ -2,6 +2,10 @@
 
 ################################# Variables #################################
 
+## --- USER CONFIGURATION: USB Controller --- ##
+USB_HOST_DRIVER="xhci_hcd"       # <--- Usually xhci_hcd, change if different (e.g., ehci_hcd)
+## --- End User Configuration --- ##
+
 ## Adds current time to var for use in echo for a cleaner log and script ##
 DATE=$(date +"%m/%d/%Y %R:%S :")
 
@@ -132,8 +136,58 @@ fi
 # fi
 
 ## Load VFIO-PCI driver ##
-modprobe vfio
-modprobe vfio_pci
-modprobe vfio_iommu_type1
+modprobe vfio vfio_pci vfio_iommu_type1 || logger "$DATE Failed to load vfio modules"
+
+sleep 1
+
+## --- USB Controller Passthrough --- ##
+
+usb_controller_passthrough() {
+    local DATE="$1"
+    local USB_CONTROLLER_PCI="$2"
+    local USB_HOST_DRIVER="$3"
+
+    logger "$DATE Starting USB Controller Passthrough for $USB_CONTROLLER_PCI"
+
+    # Verify vfio_pci driver is loaded and path exists
+    [ -d /sys/bus/pci/drivers/vfio-pci ] || { 
+        logger "$DATE ERROR: vfio-pci driver sysfs path not found!"; 
+    }
+
+    if [ -L "/sys/bus/pci/devices/$USB_CONTROLLER_PCI/driver" ]; then
+        CURRENT_DRIVER=$(basename "$(readlink -f "/sys/bus/pci/devices/$USB_CONTROLLER_PCI/driver")")
+        [ "$CURRENT_DRIVER" = "vfio-pci" ] && {
+            logger "$DATE INFO: Already bound to vfio-pci."; return 0;
+        }
+        [ "$CURRENT_DRIVER" = "$USB_HOST_DRIVER" ] && {
+            logger "$DATE Unbinding from $USB_HOST_DRIVER";
+            echo "$USB_CONTROLLER_PCI" > "/sys/bus/pci/drivers/$USB_HOST_DRIVER/unbind"
+            sleep 0.5
+        }
+    fi
+}
+
+usb_device_passthrough() {
+    local VENDOR_ID="$2" DEVICE_ID="$3"
+    logger "$1 Binding to vfio-pci"
+    echo "$VENDOR_ID $DEVICE_ID" > /sys/bus/pci/drivers/vfio-pci/new_id || {
+        logger "$DATE ERROR: Failed to bind via new_id."; return 1;
+    }
+}
+
+usb_controller_passthrough "$DATE" "73:00.0" "$USB_HOST_DRIVER"
+usb_controller_passthrough "$DATE" "76:00.4" "$USB_HOST_DRIVER"
+# Genesys
+usb_device_passthrough "$DATE" "0x05e3" "0x0610"
+# Terminus
+usb_device_passthrough "$DATE" "0x1a40" "0x0101"
+# Focusrite
+usb_device_passthrough "$DATE" "0x1235" "0x8214"
+# Mouse
+usb_device_passthrough "$DATE" "0x30fa" "0x1701"
+# Keyboard
+usb_device_passthrough "$DATE" "0x046d" "0xc317"
+
+## --- End USB Controller Passthrough --- ##
 
 logger "$DATE End of Startup!"
